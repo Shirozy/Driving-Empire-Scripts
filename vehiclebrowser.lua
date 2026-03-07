@@ -750,17 +750,19 @@ local function onBuyRequested(carName, bodyColor, interiorColor, rimsColor)
 	print("Interior:", interiorColor)
 	print("Rims:", rimsColor)
 
-    local args = {
-        [1] = {
-            [1] = tostring(carName),
-            [2] = Color3.new(bodyColor),
-            [3] = Color3.new(interiorColor),
-            [4] = Color3.new(rimsColor)
-        }
-    }
+	local args = {
+		[1] = {
+			[1] = tostring(carName),
+			[2] = bodyColor,
+			[3] = interiorColor,
+			[4] = rimsColor
+		}
+	}
 
-    game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Purchase"):InvokeServer(unpack(args))
-
+	game:GetService("ReplicatedStorage")
+		:WaitForChild("Remotes")
+		:WaitForChild("Purchase")
+		:InvokeServer(unpack(args))
 end
 
 buyButton.MouseButton1Click:Connect(function()
