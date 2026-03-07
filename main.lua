@@ -20,15 +20,28 @@ for _, pos in ipairs(decoded) do
 end
 
 local usedPositions = {}
+local cooldownPosition = Vector3.new(-20, 731, 3255)
+
+local function getCharacter()
+	return player.Character or player.CharacterAdded:Wait()
+end
+
+local function getRoot()
+	local char = getCharacter()
+	return char:WaitForChild("HumanoidRootPart")
+end
 
 local function tpExact(cf: CFrame)
-	local char = player.Character or player.CharacterAdded:Wait()
-	local hrp = char:WaitForChild("HumanoidRootPart")
-
+	local hrp = getRoot()
 	hrp.Anchored = true
 	hrp.CFrame = cf
 	task.wait()
 	hrp.Anchored = false
+end
+
+local function moveToPosition(pos: Vector3)
+	local char = getCharacter()
+	char:MoveTo(pos)
 end
 
 local function fireProximityPrompt(prompt: ProximityPrompt, amount: number?, holdTime: number?)
@@ -74,8 +87,6 @@ local function pointCameraAtATMFront(atmModel: Model)
 
 	camera.CameraType = Enum.CameraType.Scriptable
 
-	-- Move the camera to the front of the ATM and look at it
-	-- LookVector points forward from the ATM front face
 	local frontOffset = atmPart.CFrame.LookVector * -6
 	local upOffset = Vector3.new(0, 2.5, 0)
 
@@ -83,7 +94,6 @@ local function pointCameraAtATMFront(atmModel: Model)
 	local lookTarget = atmPart.Position + Vector3.new(0, 1.5, 0)
 
 	camera.CFrame = CFrame.new(cameraPosition, lookTarget)
-
 	return true
 end
 
@@ -91,24 +101,67 @@ local function restoreCamera()
 	camera.CameraType = Enum.CameraType.Custom
 end
 
-local function tryRobATM(atm: Model): boolean
+local function getATMData(atm: Model)
 	local attachment = atm:FindFirstChild("Attachment")
 	local prompt = attachment and attachment:FindFirstChildWhichIsA("ProximityPrompt")
+	local atmPart = atm:FindFirstChild("ATM")
 
+	if not attachment or not prompt or not atmPart then
+		return nil, nil, nil
+	end
+
+	return attachment, prompt, atmPart
+end
+
+local function tryRobATM(atm: Model): boolean
+	local _, prompt, _ = getATMData(atm)
 	if not prompt or not prompt.Enabled then
 		return false
 	end
 
 	tpExact(atm:GetPivot())
-
 	pointCameraAtATMFront(atm)
 
-	task.wait(0.2)
+	task.wait(0.1)
 
-	local action = fireProximityPrompt(prompt, 1, 5)
+	local _, recheckPrompt, _ = getATMData(atm)
+	if recheckPrompt and recheckPrompt.Enabled then
+		tpExact(atm:GetPivot())
+		pointCameraAtATMFront(atm)
+		task.wait(0.1)
+	else
+		restoreCamera()
+		return false
+	end
+
+	local action = fireProximityPrompt(recheckPrompt, 1, 5)
 	action.Completed:Wait()
 
+	task.wait(0.1)
+
+	local _, finalPrompt, _ = getATMData(atm)
 	restoreCamera()
+
+	-- If still enabled, it likely failed, so try one more time
+	if finalPrompt and finalPrompt.Enabled then
+		warn("Prompt still enabled, retrying ATM once")
+
+		tpExact(atm:GetPivot())
+		pointCameraAtATMFront(atm)
+		task.wait(0.1)
+
+		local actionRetry = fireProximityPrompt(finalPrompt, 1, 5)
+		actionRetry.Completed:Wait()
+
+		task.wait(0.1)
+		restoreCamera()
+
+		local _, afterRetryPrompt, _ = getATMData(atm)
+		if afterRetryPrompt and afterRetryPrompt.Enabled then
+			return false
+		end
+	end
+
 	return true
 end
 
@@ -119,14 +172,29 @@ local function findValidATM(): boolean
 			continue
 		end
 
+		local _, prompt = getATMData(atm)
+		if not prompt or not prompt.Enabled then
+			continue
+		end
+
 		if tryRobATM(atm) then
 			warn("ATM Robbed")
-            wait(1)
 			return true
 		end
 	end
 
 	return false
+end
+
+local function doBetweenTeleport(originalCF: CFrame)
+	local endTime = time() + 2
+
+	while time() < endTime do
+		moveToPosition(cooldownPosition)
+		task.wait(0.15)
+	end
+
+	tpExact(originalCF)
 end
 
 local function startLoop()
@@ -141,15 +209,24 @@ local function startLoop()
 		task.wait(1.5)
 
 		local found = findValidATM()
+
 		if found then
 			warn("ATM Interaction Complete")
 		else
 			warn("No ATM found at this position")
 		end
+
+		doBetweenTeleport(cf)
+
+		task.wait(1.5)
+
+		local foundAgain = findValidATM()
+		if foundAgain then
+			warn("ATM Interaction Complete After Return")
+		end
 	end
 
 	print("Loop Complete")
-    game.Players.LocalPlayer.Character:MoveTo(Vector3.new(-20, 731, 3255))
 end
 
 startLoop()
