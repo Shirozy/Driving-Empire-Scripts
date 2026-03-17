@@ -419,6 +419,8 @@ local function wait_until_escape_timer_ends(loop_token: number?): boolean
 
 		debug_print("Waiting for timer to finish. Seconds left:", seconds_left)
 
+        tp_exact(CFrame.new(SETTINGS.CooldownPosition))
+
 		if not safe_wait(math.min(SETTINGS.WaitCheckInterval, seconds_left), loop_token) then
 			return false
 		end
