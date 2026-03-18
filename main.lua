@@ -23,8 +23,9 @@ local SETTINGS = {
 	RetryAttemptsPerATM = 2,
 
 	-- Wait modes
-	WaitMode = 2, -- 1 = always wait for timer, 2 = threshold-based, 3 = placeholder
-	MoneyThresholdBeforeWaiting = 50000,
+	WaitMode = 3, -- 1 = always wait for timer, 2 = money threshold-based, 3 = timer threshold-based
+	MoneyThresholdBeforeWaiting = 50000, -- Waitmode 2: 
+	TimeThresholdBeforeWaiting = 300, -- Waitmode 3: 300s = 5m
 	WaitCheckInterval = 0.25,
 
 	-- Success detection
@@ -50,7 +51,7 @@ local SETTINGS = {
 	AnchorDuringTeleport = true,
 	TeleportSettleDelay = 0.05,
 
-	-- Cooldown movement between ATMs
+	-- Cooldown movement between ATM
 	CooldownPosition = Vector3.new(-20, 731, 3255),
 
 	-- Looping
@@ -177,7 +178,7 @@ local function tp_exact(cf: CFrame)
 		hrp.Anchored = false
 	end
 
-	debug_print("Teleported to:", cf.Position)
+	-- debug_print("Teleported to:", cf.Position)
 end
 
 local function move_to_position(pos: Vector3)
@@ -457,7 +458,21 @@ handle_post_atm_wait = function(loop_token: number?): boolean
 	end
 
 	if SETTINGS.WaitMode == 3 then
-		warn_print("WaitMode 3 is not implemented yet")
+		local current_timer = get_escape_notification("seconds")
+
+		debug_print(
+			"WaitMode 3 check. Timer:",
+			current_timer,
+			"Threshold:",
+			SETTINGS.TimeThresholdBeforeWaiting
+		)
+
+		if current_timer ~= nil and current_timer > SETTINGS.TimeThresholdBeforeWaiting then
+			info_print("Timer threshold exceeded, waiting for timer to finish")
+			return wait_until_escape_timer_ends(loop_token)
+		end
+
+		debug_print("Timer threshold not exceeded, continuing immediately")
 		return true
 	end
 
@@ -669,6 +684,9 @@ local function run_atm_position(index: number, cf: CFrame, used_positions: {[num
 	if not is_enabled(loop_token) then
 		return
 	end
+
+    game:GetService("ReplicatedStorage").Remotes.Location:FireServer("Leave")
+    info_print("Closed Any UI")
 
 	info_print(("Visiting ATM position %d / %d"):format(index, stats.PositionsTotal))
 
