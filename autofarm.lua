@@ -29,6 +29,7 @@ local UILibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Shi
 local ui = UILibrary.new({
 	Themes = Themes,
 	DefaultTheme = "Gruvbox",
+    ToggleKey = Enum.KeyCode.RightShift,
 })
 
 ui:SetPromptText("Press RightShift to open UI")
@@ -94,7 +95,7 @@ local SETTINGS = {
 	MoveToCooldownAtEnd = true,
 	CloseLocationUIBeforeEachTP = true,
 
-    AntiAFK = false,
+    fly = false,
 }
 
 --// =========================================
@@ -171,44 +172,207 @@ local refresh_stats_ui
 --// HELPERS
 --// =========================================
 
-local function enable_anti_afk()
-	if anti_afk_connection then
-		anti_afk_connection:Disconnect()
-		anti_afk_connection = nil
-	end
+local camera = workspace.CurrentCamera
 
-	anti_afk_connection = player.Idled:Connect(function()
-		local currentCamera = workspace.CurrentCamera
-		VirtualUser:Button2Down(Vector2.zero, currentCamera.CFrame)
-		task.wait(1)
-		VirtualUser:Button2Up(Vector2.zero, currentCamera.CFrame)
+local FLY_KEY = Enum.KeyCode.F
+local FLY_SPEED = 80
+local ASCEND_SPEED = 60
+local CONTROL_SMOOTHING = 0.15
 
-		print("Player Successfully UnIdled.")
-	end)
+local flying = false
+local character, humanoid, rootPart
+local bodyVelocity, bodyGyro
 
-	print("Anti AFK Active")
-	notify("Misc", "Anti AFK enabled", 3)
+local moveState = {
+	forward = 0,
+	backward = 0,
+	left = 0,
+	right = 0,
+	up = 0,
+	down = 0
+}
+
+local currentVelocity = Vector3.zero
+
+local function getCharacter()
+	character = player.Character or player.CharacterAdded:Wait()
+	humanoid = character:WaitForChild("Humanoid")
+	rootPart = character:WaitForChild("HumanoidRootPart")
 end
 
-local function disable_anti_afk()
-	if anti_afk_connection then
-		anti_afk_connection:Disconnect()
-		anti_afk_connection = nil
-	end
-
-	print("Anti AFK Disabled")
-	notify("Misc", "Anti AFK disabled", 3)
+local function reset_move_state()
+	moveState.forward = 0
+	moveState.backward = 0
+	moveState.left = 0
+	moveState.right = 0
+	moveState.up = 0
+	moveState.down = 0
 end
 
-local function set_anti_afk(state)
-	SETTINGS.AntiAFK = state
+local function createFlyObjects()
+	if bodyVelocity then
+		bodyVelocity:Destroy()
+	end
 
-	if state then
-		enable_anti_afk()
+	if bodyGyro then
+		bodyGyro:Destroy()
+	end
+
+	bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.Name = "DevFlyVelocity"
+	bodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+	bodyVelocity.Velocity = Vector3.zero
+	bodyVelocity.P = 25000
+	bodyVelocity.Parent = rootPart
+
+	bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.Name = "DevFlyGyro"
+	bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+	bodyGyro.P = 25000
+	bodyGyro.D = 1000
+	bodyGyro.CFrame = camera.CFrame
+	bodyGyro.Parent = rootPart
+end
+
+local function removeFlyObjects()
+	if bodyVelocity then
+		bodyVelocity:Destroy()
+		bodyVelocity = nil
+	end
+
+	if bodyGyro then
+		bodyGyro:Destroy()
+		bodyGyro = nil
+	end
+end
+
+local function set_fly_state(state)
+	state = not not state
+
+	if state == flying then
+		return
+	end
+
+	if not character or not character.Parent or not humanoid or not rootPart then
+		getCharacter()
+	end
+
+	flying = state
+
+	if flying then
+		createFlyObjects()
+		humanoid.PlatformStand = true
+		currentVelocity = Vector3.zero
+		reset_move_state()
+		print("Fly Enabled")
 	else
-		disable_anti_afk()
+		if humanoid then
+			humanoid.PlatformStand = false
+		end
+
+		currentVelocity = Vector3.zero
+		reset_move_state()
+		removeFlyObjects()
+		print("Fly Disabled")
 	end
 end
+
+local function toggleFly()
+	set_fly_state(not flying)
+end
+
+getCharacter()
+
+player.CharacterAdded:Connect(function()
+	getCharacter()
+
+	if flying then
+		task.defer(function()
+			if character and character.Parent then
+				set_fly_state(true)
+			end
+		end)
+	end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then
+		return
+	end
+
+	if input.KeyCode == FLY_KEY then
+		toggleFly()
+	elseif input.KeyCode == Enum.KeyCode.W then
+		moveState.forward = 1
+	elseif input.KeyCode == Enum.KeyCode.S then
+		moveState.backward = 1
+	elseif input.KeyCode == Enum.KeyCode.A then
+		moveState.left = 1
+	elseif input.KeyCode == Enum.KeyCode.D then
+		moveState.right = 1
+	elseif input.KeyCode == Enum.KeyCode.Space then
+		moveState.up = 1
+	elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.LeftShift then
+		moveState.down = 1
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.W then
+		moveState.forward = 0
+	elseif input.KeyCode == Enum.KeyCode.S then
+		moveState.backward = 0
+	elseif input.KeyCode == Enum.KeyCode.A then
+		moveState.left = 0
+	elseif input.KeyCode == Enum.KeyCode.D then
+		moveState.right = 0
+	elseif input.KeyCode == Enum.KeyCode.Space then
+		moveState.up = 0
+	elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.LeftShift then
+		moveState.down = 0
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	if not flying then
+		return
+	end
+
+	if not character or not character.Parent or not rootPart or not humanoid then
+		return
+	end
+
+	if not bodyVelocity or not bodyGyro then
+		return
+	end
+
+	local camCFrame = camera.CFrame
+	local lookVector = camCFrame.LookVector
+	local rightVector = camCFrame.RightVector
+
+	local forward = moveState.forward - moveState.backward
+	local strafe = moveState.right - moveState.left
+	local vertical = moveState.up - moveState.down
+
+	local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z)
+	if flatLook.Magnitude > 0 then
+		flatLook = flatLook.Unit
+	end
+
+	local flatRight = Vector3.new(rightVector.X, 0, rightVector.Z)
+	if flatRight.Magnitude > 0 then
+		flatRight = flatRight.Unit
+	end
+
+	local targetVelocity =
+		(flatLook * forward * FLY_SPEED) +
+		(flatRight * strafe * FLY_SPEED) +
+		(Vector3.new(0, vertical * ASCEND_SPEED, 0))
+
+	currentVelocity = currentVelocity:Lerp(targetVelocity, CONTROL_SMOOTHING)
+	bodyVelocity.Velocity = currentVelocity
+	bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + camCFrame.LookVector)
+end)
 
 local function get_character()
 	return player.Character or player.CharacterAdded:Wait()
@@ -1321,33 +1485,6 @@ miscSection:AddTextbox({
 	end
 })
 
-ui:AddToggleKeybind({
-	Name = "Toggle UI",
-	Section = controlSection,
-	Default = Enum.KeyCode.RightShift
-})
-
-ui:AddKeybind({
-	Name = "Start / Stop ATM Loop",
-	Section = controlSection,
-	Default = SETTINGS.StopKey,
-	Mode = "Press",
-	Callback = function()
-		if loop_running or SETTINGS.Enabled then
-			stop_loop()
-			notify("ATM", "Stopped from keybind", 3)
-		else
-			SETTINGS.Enabled = true
-			refresh_stats_ui()
-			local loop = start_loop()
-			task.spawn(function()
-				loop.Completed:Wait()
-			end)
-			notify("ATM", "Started from keybind", 3)
-		end
-	end
-})
-
 local miscTab = ui:AddTab({
 	Name = "Misc",
 })
@@ -1358,11 +1495,47 @@ local miscMainSection = miscTab:AddSection({
 })
 
 miscMainSection:AddToggle({
-	Name = "Anti AFK",
-	Default = SETTINGS.AntiAFK,
-	Tooltip = "Prevents idle kick by simulating input when Roblox marks you idle",
+	Name = "Fly",
+	Default = false,
+	Tooltip = "Fly mode. WASD to move, Space/Shift to go up/down",
 	Callback = function(state)
-		set_anti_afk(state)
+		set_fly_state(state)
+	end
+})
+
+miscMainSection:AddSlider({
+	Name = "Fly Speed",
+	Default = FLY_SPEED,
+	Min = 10,
+	Max = 300,
+	Increment = 1,
+	Tooltip = "Horizontal fly movement speed",
+	Callback = function(value)
+		FLY_SPEED = value
+	end
+})
+
+miscMainSection:AddSlider({
+	Name = "Ascent Speed",
+	Default = ASCEND_SPEED,
+	Min = 10,
+	Max = 300,
+	Increment = 1,
+	Tooltip = "Vertical fly movement speed",
+	Callback = function(value)
+		ASCEND_SPEED = value
+	end
+})
+
+miscMainSection:AddSlider({
+	Name = "Fly Smoothing",
+	Default = CONTROL_SMOOTHING,
+	Min = 0.01,
+	Max = 1,
+	Increment = 0.01,
+	Tooltip = "Higher = snappier movement, lower = smoother acceleration",
+	Callback = function(value)
+		CONTROL_SMOOTHING = value
 	end
 })
 
@@ -1379,27 +1552,97 @@ UserInputService.InputBegan:Connect(function(input, game_processed)
 		-- UI lib already handles RightShift for UI toggle
 		return
 	end
+end)
 
-	if input.KeyCode == SETTINGS.StopKey then
+--// =========================================
+--// SETTINGS PAGE
+--// =========================================
+
+local settingsKeybindsSection = ui:AddSettingsSection({
+	Name = "Keybinds"
+})
+
+ui:AddToSettings("Toggle", {
+	Name = "Show Keybind Overlay",
+	Section = "General",
+	Default = false,
+	Callback = function(state)
+		ui:SetKeybindOverlayEnabled(state)
+	end,
+})
+
+ui:AddToggleKeybind({
+	Name = "Toggle UI",
+	Section = settingsKeybindsSection,
+	Default = Enum.KeyCode.RightShift,
+	Callback = function(newKey)
+		SETTINGS.ToggleKey = newKey
+
+		ui:Notify({
+			Title = "Toggle Key Updated",
+			Content = "New key: " .. tostring(newKey):gsub("Enum.KeyCode.", ""),
+			Duration = 2.5,
+		})
+	end,
+})
+
+ui:AddKeybind({
+	Name = "Toggle ATM Farm",
+	Section = settingsKeybindsSection,
+	Default = SETTINGS.StopKey,
+	Mode = "Press",
+	Callback = function()
 		if loop_running or SETTINGS.Enabled then
 			stop_loop()
-			info_print("ATM loop stopped")
-			notify("ATM", "ATM loop stopped", 3)
+			notify("ATM", "Stopped from keybind", 3)
+		else
+			SETTINGS.Enabled = true
+			refresh_stats_ui()
+
+			if not loop_running then
+				local loop = start_loop()
+				task.spawn(function()
+					loop.Completed:Wait()
+				end)
+			end
+
+			notify("ATM", "Started from keybind", 3)
 		end
 	end
-end)
+})
+
+ui:AddKeybind({
+	Name = "Toggle Fly",
+	Section = settingsKeybindsSection,
+	Default = FLY_KEY,
+	Mode = "Press",
+	Callback = function()
+		toggleFly()
+	end
+})
 
 --// =========================================
 --// BOOT
 --// =========================================
 
-if SETTINGS.AntiAFK then
-	enable_anti_afk()
-end
-
+ui:SetKeybindOverlayEnabled(false)
 refresh_stats_ui()
 -- ui:Open()
 notify("ATM", "UI loaded successfully", 3)
+
+local VirtualUser = game:GetService("VirtualUser") 
+local currentCamera = game.Workspace.CurrentCamera 
+
+player.Idled:Connect(function() 
+    VirtualUser:Button2Down(Vector2.zero, currentCamera.CFrame) 
+    task.wait(1) 
+    VirtualUser:Button2Up(Vector2.zero, currentCamera.CFrame) 
+    
+    print("Player Successfully UnIdled.") 
+    
+end) 
+
+notify("ANTI AFK", "AFK Script Loaded successfully", 3)
 
 task.spawn(function()
 	while true do
